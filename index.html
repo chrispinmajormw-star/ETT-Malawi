@@ -830,88 +830,238 @@ function Sidebar({page,setPage,user,onLogout,open,onClose}){
 // ─────────────────────────────────────────────
 // DASHBOARD  (role-aware)
 // ─────────────────────────────────────────────
-function Dashboard({user,reports,setPage}){
-  const currentUser=user||{role:"viewer",name:"Public Viewer",district:null};
+function Dashboard({ user, reports, setPage }) {
+  const currentUser = user || { role: "viewer", name: "Public Viewer", district: null };
   const isPublic = !user;
-  const my=(currentUser.role==="data_entry"||currentUser.role==="tot")?reports.filter(r=>r.submitted_by===currentUser.name):currentUser.role==="district_coordinator"?reports.filter(r=>r.district===currentUser.district):reports;
-  const pending=my.filter(r=>r.status==="pending").length;
-  const approved=my.filter(r=>r.status==="approved").length;
-  const students=my.reduce((a,r)=>a+r.boys+r.girls,0);
-  const rc=ROLE_CFG[currentUser.role];
-  
-  return(
+  const my = (currentUser.role === "data_entry" || currentUser.role === "tot") ? reports.filter(r => r.submitted_by === currentUser.name) : currentUser.role === "district_coordinator" ? reports.filter(r => r.district === currentUser.district) : reports;
+  const pending = my.filter(r => r.status === "pending").length;
+  const approved = my.filter(r => r.status === "approved").length;
+  const students = my.reduce((a, r) => a + r.boys + r.girls, 0);
+  const rc = ROLE_CFG[currentUser.role];
+
+  // ── Tracking data (Ujamaa Pamodzi Numbers Tracking Tool) ──
+  const YEARLY_DATA = [
+    { year: "2023", schools: 116,  teachers: 228,  learners: 45600,  targetSchools: 225,   targetLearners: 45000 },
+    { year: "2024", schools: 357,  teachers: 727,  learners: 145400, targetSchools: 950,   targetLearners: 190000 },
+    { year: "2025", schools: 975,  teachers: 1973, learners: 395000, targetSchools: 3000,  targetLearners: 600000, current: true },
+    { year: "2026", schools: 18,   teachers: 36,   learners: 7200,   targetSchools: 6000,  targetLearners: 1200000 },
+    { year: "2027", schools: 0,    teachers: 0,    learners: 0,      targetSchools: 10000, targetLearners: 2000000, planned: true },
+  ];
+
+  const PROJECTS = [
+    {
+      tag: "JPGE", label: "JPGE Project", period: "2015–2022",
+      total: 63128, color: "#1a5fa8", pale: "#e6f1fb",
+      districts: ["Kasungu", "Dedza", "Salima", "Mangochi"],
+      boys: [8406, 9732, 10829, 15155],
+      girls: [841,  1094, 9966,  14000],
+    },
+    {
+      tag: "CWA", label: "CWA Project", period: "2022–2023",
+      total: 1738, color: "#0f6e56", pale: "#e1f5ee",
+      districts: ["Mzimba", "Mchinji", "Lilongwe"],
+      boys: [175, 152, 167],
+      girls: [181, 186, 187],
+    },
+    {
+      tag: "LSN", label: "LSN Project", period: "Special Needs 2024–2025",
+      total: 4974, color: "#854f0b", pale: "#faeeda",
+      districts: ["Mzimba","Blantyre","Lilongwe","Dowa","Kasungu","Machinga","Zomba","Ntcheu"],
+      boys: [260, 313, 200, 239, 340, 450, 215, 521],
+      girls: [313, 260, 205, 239, 349, 357, 227, 2471],
+    },
+    {
+      tag: "STEVENS", label: "Stevens ETT", period: "2020",
+      total: 8937, color: "#993c1d", pale: "#faece7",
+      districts: ["Salima","Dedza","Mangochi","Nsanje","Nkhata Bay","Mzimba","Dowa","Ntchisi"],
+      boys: [801, 850, 374, 360, 360, 360, 260, 260],
+      girls: [925, 511, 374, 360, 360, 361, 458, 260],
+    },
+  ];
+
+  const SUMMARY_BADGES = [
+    { label: "Total Clusters", value: "393", color: "#854f0b", pale: "#faeeda" },
+    { label: "ToTs",           value: "722", color: "#185fa5", pale: "#e6f1fb" },
+    { label: "Total Meetings", value: "371", color: "#0f6e56", pale: "#e1f5ee" },
+    { label: "Senior ToTs",    value: "9",   color: "#534ab7", pale: "#eeedfe" },
+  ];
+
+  // Refs for Chart.js instances (to destroy on re-render)
+  const chartRefs = React.useRef({});
+
+  React.useEffect(() => {
+    if (typeof Chart === "undefined") return;
+
+    const destroyChart = (id) => {
+      if (chartRefs.current[id]) {
+        chartRefs.current[id].destroy();
+        delete chartRefs.current[id];
+      }
+    };
+
+    // Scale-Up trend chart
+    const scaleCtx = document.getElementById("up-scale-chart");
+    if (scaleCtx) {
+      destroyChart("scale");
+      chartRefs.current["scale"] = new Chart(scaleCtx, {
+        type: "bar",
+        data: {
+          labels: YEARLY_DATA.map(d => d.year),
+          datasets: [
+            { label: "Schools reached", data: YEARLY_DATA.map(d => d.schools), backgroundColor: "#378ADD", borderRadius: 4 },
+            { label: "Learners (÷1000)", data: YEARLY_DATA.map(d => +(d.learners / 1000).toFixed(1)), backgroundColor: "#1D9E75", borderRadius: 4 },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: "#9ca3af", font: { size: 11 } } },
+            y: { grid: { color: "rgba(0,0,0,0.05)" }, ticks: { color: "#9ca3af", font: { size: 11 } } },
+          },
+        },
+      });
+    }
+
+    // Per-project bar charts
+    PROJECTS.forEach((p, i) => {
+      const ctx = document.getElementById(`up-proj-chart-${i}`);
+      if (!ctx) return;
+      destroyChart(`proj-${i}`);
+      chartRefs.current[`proj-${i}`] = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: p.districts,
+          datasets: [
+            { label: "Boys", data: p.boys, backgroundColor: "#378ADD", borderRadius: 3 },
+            { label: "Girls", data: p.girls, backgroundColor: "#D85A30", borderRadius: 3 },
+          ],
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { grid: { display: false }, ticks: { color: "#9ca3af", font: { size: 9 }, maxRotation: 35 } },
+            y: { grid: { color: "rgba(0,0,0,0.05)" }, ticks: { color: "#9ca3af", font: { size: 9 } } },
+          },
+        },
+      });
+    });
+
+    return () => { Object.keys(chartRefs.current).forEach(destroyChart); };
+  }, []);
+
+  // ── Styles (shared across tracking section) ──
+  const S = {
+    sectionTitle: { fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.4, color: "#9ca3af", marginBottom: 10 },
+    trackingCard: { background: "#fff", border: "1px solid #f0f0f0", borderRadius: 16, padding: "18px 20px", boxSizing: "border-box" },
+    metricLabel: { fontSize: 11, color: "#9ca3af", marginBottom: 3 },
+    metricValue: { fontSize: 22, fontWeight: 700, color: "#111827" },
+    metricSub: { fontSize: 10, color: "#c4c4c4", marginTop: 2 },
+    divider: { border: "none", borderTop: "1px solid #f3f4f6", margin: "10px 0" },
+    projHeader: { fontSize: 13, fontWeight: 700, color: "#111827", marginBottom: 2 },
+    projSub: { fontSize: 11, color: "#9ca3af", marginBottom: 8 },
+    projTotal: { fontSize: 28, fontWeight: 800, color: "#111827", marginBottom: 2 },
+    legendDot: (color) => ({ width: 9, height: 9, borderRadius: 2, background: color, display: "inline-block", marginRight: 4 }),
+  };
+
+  return (
     <div>
-      {/* Program hero banner */}
-      <div style={{background:"linear-gradient(135deg,#fff 0%,#fff8f1 70%,#fff1e5 100%)",border:`1px solid ${OR_PALE}`,borderRadius:16,padding:"24px 28px",color:"#111827",marginBottom:18,display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:12,position:"relative",overflow:"hidden",boxShadow:"0 18px 44px rgba(59,38,33,.10)"}}>
-        <div style={{position:"absolute",top:-50,right:-50,width:180,height:180,borderRadius:"50%",background:"rgba(234,108,10,.08)"}}/>
-        <div style={{position:"relative"}}>
-          <div style={{fontSize:10,color:OR,textTransform:"uppercase",letterSpacing:1.2,marginBottom:4,fontWeight:700}}>
+
+      {/* ── Original: Program hero banner ── */}
+      <div
+        style={{
+          background: "linear-gradient(135deg,#fff 0%,#fff8f1 70%,#fff1e5 100%)",
+          border: `1px solid ${OR_PALE}`,
+          borderRadius: 24,
+          padding: "42px 28px",
+          color: "#111827",
+          margin: "0 auto 24px auto",
+          position: "relative",
+          overflow: "hidden",
+          boxShadow: "0 18px 44px rgba(59,38,33,.10)",
+          textAlign: "center",
+          maxWidth: 1300,
+        }}
+      >
+        <div style={{ position: "absolute", top: -60, right: -60, width: 220, height: 220, borderRadius: "50%", background: "rgba(234,108,10,.08)" }} />
+        <div style={{ position: "relative", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+          <div style={{ fontSize: 11, color: OR, textTransform: "uppercase", letterSpacing: 1.4, marginBottom: 10, fontWeight: 800 }}>
             {user ? "Welcome back" : "ETT Malawi National Program Dashboard"}
           </div>
-          <h1 style={{margin:"0 0 4px",fontSize:26,fontWeight:800}}>{user? currentUser.name: "Empowering Safer Schools Across Malawi"}</h1>
-          <div style={{display:"flex",alignItems:"center",gap:7,flexWrap:"wrap"}}>
-            <span style={{background:OR_PALE,color:OR_D,padding:"2px 9px",borderRadius:20,fontSize:11.5,fontWeight:700}}>{user?rc.icon:"🌍"} {user?rc.label:"Public access"}</span>
-            {currentUser.district&&<span style={{fontSize:11.5,color:"#6b7280"}}>📍 {currentUser.district}</span>}
+          <h1 style={{ margin: "0 0 12px", fontSize: "clamp(2rem,5vw,3.5rem)", lineHeight: 1.05, fontWeight: 800, letterSpacing: "-1px", maxWidth: 900 }}>
+            {user ? currentUser.name : "Empowering Safer Schools Across Malawi"}
+          </h1>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8, flexWrap: "wrap", marginBottom: 24 }}>
+            <span style={{ background: OR_PALE, color: OR_D, padding: "6px 14px", borderRadius: 999, fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 6 }}>
+              🌍 {user ? rc.label : "Public access centralized"}
+            </span>
+            {currentUser.district && <span style={{ fontSize: 12, color: "#6b7280" }}>📍 {currentUser.district}</span>}
           </div>
-        </div>
-        <div style={{display:"flex",gap:7,flexWrap:"wrap",position:"relative"}}>
-          {isPublic ? (
-            <>
-              <Btn onClick={()=>setPage("maps")}>🗺️ View Coverage Map</Btn>
-              <Btn onClick={()=>setPage("impact")} variant="secondary">🌟 Impact Stories</Btn>
-              <Btn onClick={()=>setPage("submit")} variant="ghost">🛡️ Report a Concern</Btn>
-              <Btn onClick={()=>setPage("login")} style={{background:OR,color:"#fff"}}>🔐 Staff Login</Btn>
-            </>
-          ) : (
-            <>
-              <Btn onClick={()=>setPage("submit")}>📝 Submit Report</Btn>
-              {can(user.role,"approveReport") && pending>0 && (
-                <Btn onClick={()=>setPage("reports")} style={{background:OR,color:"#fff"}}>✅ Review ({pending})</Btn>
-              )}
-              {can(user.role,"manageUsers") && (
-                <Btn onClick={()=>setPage("users")} style={{background:OR,color:"#fff"}}>👥 Manage Users</Btn>
-              )}
-            </>
-          )}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "center" }}>
+            {isPublic ? (
+              <>
+                <Btn onClick={() => setPage("maps")}>View Coverage Map</Btn>
+                <Btn onClick={() => setPage("impact")} variant="secondary">Impact Stories</Btn>
+                <Btn onClick={() => setPage("submit")} variant="ghost">Report a Concern</Btn>
+                <Btn onClick={() => setPage("login")} style={{ background: OR, color: "#fff" }}>Staff Login</Btn>
+              </>
+            ) : (
+              <>
+                <Btn onClick={() => setPage("submit")}>Submit Report</Btn>
+                {can(user.role, "approveReport") && pending > 0 && (
+                  <Btn onClick={() => setPage("reports")} style={{ background: OR, color: "#fff" }}>Review ({pending})</Btn>
+                )}
+                {can(user.role, "manageUsers") && (
+                  <Btn onClick={() => setPage("users")} style={{ background: OR, color: "#fff" }}>Manage Users</Btn>
+                )}
+              </>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Stats */}
-      <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10,marginBottom:18}}>
+      {/* ── Original: Stats strip ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(160px,1fr))", gap: 10, marginBottom: 18 }}>
         {isPublic ? (
           <>
-            <StatCard icon="👨‍🎓" label="Learners Reached" value="12,450+" />
+            <StatCard icon="👨‍🎓" label="Learners Reached" value="51,600+" />
             <StatCard icon="🏫" label="Schools Covered" value="378" />
-            <StatCard icon="📍" label="Districts Active" value="19" />
-            <StatCard icon="🎓" label="TOTs Trained" value="840+" />
+            <StatCard icon="📍" label="Districts Active" value="22" />
+            <StatCard icon="🎓" label="TOTs Trained" value="500+" />
             <StatCard icon="📘" label="Sessions Conducted" value="1,240+" />
-            <StatCard icon="🌍" label="Coverage Progress" value="68%" />
+            <StatCard icon="🌍" label="Coverage Progress" value="80%" />
           </>
         ) : (
           <>
-            <StatCard icon="📋" label="Reports" value={my.length}/>
-            <StatCard icon="⏳" label="Pending" value={pending}/>
-            <StatCard icon="✅" label="Approved" value={approved}/>
-            <StatCard icon="👨‍🎓" label="Students" value={students}/>
+            <StatCard icon="📋" label="Reports" value={my.length} />
+            <StatCard icon="⏳" label="Pending" value={pending} />
+            <StatCard icon="✅" label="Approved" value={approved} />
+            <StatCard icon="👨‍🎓" label="Students" value={students} />
           </>
         )}
       </div>
 
-      {/* ================= PROGRAM IMPACT ================= */}
+      {/* ── Original: Program Impact ── */}
       {isPublic && (
-        <Card style={{marginBottom: 24}}>
-          <SH title="Program Impact Across Malawi"/>
-          <div style={{display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, alignItems: "stretch"}}>
+        <Card style={{ marginBottom: 24 }}>
+          <SH title="Program Impact Across Malawi" />
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, alignItems: "stretch" }}>
             {[
-              {icon: "👦", title: "Boys Empowerment", text: "Helping boys become respectful and responsible young men.", color: "#e8f4f8"},
-              {icon: "👧", title: "Girls Empowerment", text: "Building confidence, safety awareness and leadership skills.", color: "#fdf2f8"},
-              {icon: "🌍", title: "Community Protection", text: "Supporting safer schools and communities across Malawi.", color: "#f0f9f0"}
+              { icon: "👦", title: "Boys Empowerment", text: "Helping boys become respectful and responsible young men.", color: "#e8f4f8" },
+              { icon: "👧", title: "Girls Empowerment", text: "Building confidence, safety awareness and leadership skills.", color: "#fdf2f8" },
+              { icon: "🌍", title: "Community Protection", text: "Supporting safer schools and communities across Malawi.", color: "#f0f9f0" },
             ].map((item, index) => (
-              <div key={index} style={{background: "#ffffff", border: "1px solid #e5e7eb", borderRadius: 20, padding: "20px 18px", display: "flex", alignItems: "flex-start", gap: 16, width: "100%", boxSizing: "border-box", transition: "all 0.2s ease", cursor: "pointer", boxShadow: "0 2px 4px rgba(0,0,0,0.02)"}} onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.08)"; e.currentTarget.style.transform = "translateY(-2px)"; }} onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.02)"; e.currentTarget.style.transform = "translateY(0)"; }}>
-                <div style={{width: 52, minWidth: 52, height: 52, borderRadius: 16, background: item.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26}}>{item.icon}</div>
-                <div style={{flex: 1, minWidth: 0}}>
-                  <div style={{fontWeight: 700, fontSize: 16, marginBottom: 6, color: "#111827"}}>{item.title}</div>
-                  <div style={{fontSize: 13.5, lineHeight: 1.55, color: "#6b7280"}}>{item.text}</div>
+              <div
+                key={index}
+                style={{ background: "#ffffff", border: "1px solid #e5e7eb", borderRadius: 20, padding: "20px 18px", display: "flex", alignItems: "flex-start", gap: 16, width: "100%", boxSizing: "border-box", transition: "all 0.2s ease", cursor: "pointer", boxShadow: "0 2px 4px rgba(0,0,0,0.02)" }}
+                onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 8px 20px rgba(0,0,0,0.08)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+                onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "0 2px 4px rgba(0,0,0,0.02)"; e.currentTarget.style.transform = "translateY(0)"; }}
+              >
+                <div style={{ width: 52, minWidth: 52, height: 52, borderRadius: 16, background: item.color, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 26 }}>{item.icon}</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 6, color: "#111827" }}>{item.title}</div>
+                  <div style={{ fontSize: 13.5, lineHeight: 1.55, color: "#6b7280" }}>{item.text}</div>
                 </div>
               </div>
             ))}
@@ -919,37 +1069,36 @@ function Dashboard({user,reports,setPage}){
         </Card>
       )}
 
-      {/* ================= MAIN DASHBOARD ================= */}
-      <div style={{display:"grid", gridTemplateColumns:"minmax(0,1.6fr) minmax(280px,360px)", gap:24, alignItems:"start"}}>
-        
-        {/* ================= LEFT SECTION ================= */}
+      {/* ── Original: Main dashboard grid ── */}
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1.6fr) minmax(280px,360px)", gap: 24, alignItems: "start" }}>
         {!isPublic && (
-          <Card style={{overflow:"hidden", width:"100%", minWidth:0, padding:"20px 0 0 0"}}>
-            <div style={{padding:"0 20px"}}>
+          <Card style={{ overflow: "hidden", width: "100%", minWidth: 0, padding: "20px 0 0 0" }}>
+            <div style={{ padding: "0 20px" }}>
               <SH title="Recent Reports" action={
-                user ? (
-                  <Btn size="sm" variant="secondary" onClick={() => setPage(user.role === "data_entry" ? "my_reports" : "reports")}>View All →</Btn>
-                ) : (
-                  <Btn size="sm" variant="secondary" onClick={() => setPage("login")}>Sign In →</Btn>
-                )
-              }/>
+                user
+                  ? <Btn size="sm" variant="secondary" onClick={() => setPage(user.role === "data_entry" ? "my_reports" : "reports")}>View All →</Btn>
+                  : <Btn size="sm" variant="secondary" onClick={() => setPage("login")}>Sign In →</Btn>
+              } />
             </div>
-            <div style={{overflowX:"auto", width:"100%", marginTop:8}}>
-              <table style={{width:"100%", borderCollapse:"collapse", minWidth:700, fontSize:13}}>
-                <TH cols={["School","District","Curriculum","Students","Status","Date"]}/>
+            <div style={{ overflowX: "auto", width: "100%", marginTop: 8 }}>
+              <table style={{ width: "100%", borderCollapse: "collapse", minWidth: 700, fontSize: 13 }}>
+                <TH cols={["School", "District", "Curriculum", "Students", "Status", "Date"]} />
                 <tbody>
-                  {my.slice(0,5).map(r=>(
-                    <tr key={r.id} style={{borderBottom:"1px solid #f3f4f6"}} onMouseEnter={(e) => { e.currentTarget.style.background = "#fafafa"; }} onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}>
-                      <td style={{padding:"14px 12px", fontWeight:600, whiteSpace:"nowrap"}}>{r.school}</td>
-                      <td style={{padding:"14px 12px", color:"#6b7280"}}>{r.district}</td>
-                      <td style={{padding:"14px 12px"}}><Badge text={r.curriculum}/></td>
-                      <td style={{padding:"14px 12px", color:"#6b7280", fontWeight:500}}>{r.boys + r.girls}</td>
-                      <td style={{padding:"14px 12px"}}><Pill s={r.status}/></td>
-                      <td style={{padding:"14px 12px", color:"#9ca3af", fontSize:11, whiteSpace:"nowrap"}}>{r.submitted_at}</td>
+                  {my.slice(0, 5).map(r => (
+                    <tr key={r.id} style={{ borderBottom: "1px solid #f3f4f6" }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#fafafa"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; }}
+                    >
+                      <td style={{ padding: "14px 12px", fontWeight: 600, whiteSpace: "nowrap" }}>{r.school}</td>
+                      <td style={{ padding: "14px 12px", color: "#6b7280" }}>{r.district}</td>
+                      <td style={{ padding: "14px 12px" }}><Badge text={r.curriculum} /></td>
+                      <td style={{ padding: "14px 12px", color: "#6b7280", fontWeight: 500 }}>{r.boys + r.girls}</td>
+                      <td style={{ padding: "14px 12px" }}><Pill s={r.status} /></td>
+                      <td style={{ padding: "14px 12px", color: "#9ca3af", fontSize: 11, whiteSpace: "nowrap" }}>{r.submitted_at}</td>
                     </tr>
                   ))}
-                  {my.length===0 && (
-                    <tr><td colSpan={6} style={{padding:48, textAlign:"center", color:"#9ca3af", fontSize:14}}>📭 No reports yet</td></tr>
+                  {my.length === 0 && (
+                    <tr><td colSpan={6} style={{ padding: 48, textAlign: "center", color: "#9ca3af", fontSize: 14 }}>📭 No reports yet</td></tr>
                   )}
                 </tbody>
               </table>
@@ -957,48 +1106,180 @@ function Dashboard({user,reports,setPage}){
           </Card>
         )}
 
-        {/* ================= RIGHT SIDEBAR ================= */}
-        <div style={{display:"flex", flexDirection:"column", gap:20, width:"100%", minWidth:0}}>
-          {/* QUICK ACTIONS */}
-          <Card style={{padding:"20px"}}>
-            <SH title="Quick Actions"/>
-            <div style={{display:"grid", gap:12, marginTop:8}}>
-              <Btn onClick={()=>setPage("submit")} full style={{fontWeight: 600, padding:"12px 16px"}}>📝 {user ? "Submit Report" : "Report Case"}</Btn>
-              {user && (<Btn variant="secondary" onClick={()=>setPage("curriculum")} full style={{fontWeight: 500, padding:"12px 16px"}}>📘 Curriculum</Btn>)}
-              <Btn variant="ghost" onClick={()=>setPage("maps")} full style={{fontWeight: 500, padding:"12px 16px"}}>🗺️ View Maps</Btn>
-              {user && (<Btn variant="ghost" onClick={()=>setPage("analytics")} full style={{fontWeight: 500, padding:"12px 16px"}}>📊 Analytics</Btn>)}
+        <div style={{ display: "flex", flexDirection: "column", gap: 20, width: "100%", minWidth: 0 }}>
+          <Card style={{ padding: "20px" }}>
+            <SH title="Quick Actions" />
+            <div style={{ display: "grid", gap: 12, marginTop: 8 }}>
+              <Btn onClick={() => setPage("submit")} full style={{ fontWeight: 600, padding: "12px 16px" }}>📝 {user ? "Submit Report" : "Report Case"}</Btn>
+              {user && <Btn variant="secondary" onClick={() => setPage("curriculum")} full style={{ fontWeight: 500, padding: "12px 16px" }}>📘 Curriculum</Btn>}
+              <Btn variant="ghost" onClick={() => setPage("maps")} full style={{ fontWeight: 500, padding: "12px 16px" }}>🗺️ View Maps</Btn>
+              {user && <Btn variant="ghost" onClick={() => setPage("analytics")} full style={{ fontWeight: 500, padding: "12px 16px" }}>📊 Analytics</Btn>}
             </div>
           </Card>
 
-          {/* EMERGENCY */}
-          <Card style={{background:"linear-gradient(135deg, #fff7ef 0%, #fffbf5 100%)", border:"1px solid #fde7cf", padding:"20px", position:"relative", overflow:"hidden"}}>
-            <div style={{position:"absolute", top:-20, right:-20, fontSize:80, opacity:0.08, pointerEvents:"none"}}>🆘</div>
-            <div style={{fontSize:12, fontWeight:800, textTransform:"uppercase", letterSpacing:1, color:"#92400e", marginBottom:14}}>⚡ Emergency Contacts</div>
-            <div style={{fontSize:14, lineHeight:2, color:"#374151", position:"relative", zIndex:1}}>
-              <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:6}}><span style={{fontSize:18}}>🆘</span><span><b>Child Helpline:</b> 116</span></div>
-              <div style={{display:"flex", alignItems:"center", gap:10, marginBottom:6}}><span style={{fontSize:18}}>👮</span><span><b>VSU Police:</b> 997</span></div>
-              <div style={{display:"flex", alignItems:"center", gap:10}}><span style={{fontSize:18}}>📧</span><span><b>Email:</b> info@ujamaa.mw</span></div>
+          <Card style={{ background: "linear-gradient(135deg, #fff7ef 0%, #fffbf5 100%)", border: "1px solid #fde7cf", padding: "20px", position: "relative", overflow: "hidden" }}>
+            <div style={{ position: "absolute", top: -20, right: -20, fontSize: 80, opacity: 0.08, pointerEvents: "none" }}>🆘</div>
+            <div style={{ fontSize: 12, fontWeight: 800, textTransform: "uppercase", letterSpacing: 1, color: "#92400e", marginBottom: 14 }}>⚡ Emergency Contacts</div>
+            <div style={{ fontSize: 14, lineHeight: 2, color: "#374151", position: "relative", zIndex: 1 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}><span style={{ fontSize: 18 }}>🆘</span><span><b>Child Helpline:</b> 116</span></div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 6 }}><span style={{ fontSize: 18 }}>👮</span><span><b>VSU Police:</b> 997</span></div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}><span style={{ fontSize: 18 }}>📧</span><span><b>Email:</b> info@ujamaa.mw</span></div>
             </div>
           </Card>
         </div>
       </div>
 
-      {/* Region overview chips */}
-      <Card style={{marginTop:12}}>
-        <SH title="Districts by Region" action={<Btn size="sm" variant="secondary" onClick={()=>setPage("districts")}>View All →</Btn>}/>
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10}}>
-          {[{r:"Northern",active:"6/6",ds:["Chitipa","Karonga","Rumphi","Nkhata Bay","Mzimba","Likoma"]},
-            {r:"Central",active:"6/9",ds:["Lilongwe","Dowa","Kasungu","Dedza","Ntcheu","Nkhotakota"]},
-            {r:"Southern",active:"10/13",ds:["Blantyre","Zomba","Mangochi","Thyolo","Mulanje","Balaka"]}].map(g=>(
+      {/* ── Original: Districts by region ── */}
+      <Card style={{ marginTop: 12 }}>
+        <SH title="Districts by Region" action={<Btn size="sm" variant="secondary" onClick={() => setPage("districts")}>View All →</Btn>} />
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+          {[
+            { r: "Northern", active: "6/6",  ds: ["Chitipa", "Karonga", "Rumphi", "Nkhata Bay", "Mzimba", "Likoma"] },
+            { r: "Central",  active: "6/9",  ds: ["Lilongwe", "Dowa", "Kasungu", "Dedza", "Ntcheu", "Nkhotakota"] },
+            { r: "Southern", active: "10/13", ds: ["Blantyre", "Zomba", "Mangochi", "Thyolo", "Mulanje", "Balaka"] },
+          ].map(g => (
             <div key={g.r}>
-              <div style={{display:"flex",justifyContent:"space-between",fontSize:11,fontWeight:700,marginBottom:5}}><span>{g.r}</span><span style={{color:OR}}>{g.active}</span></div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
-                {g.ds.map(d=><span key={d} onClick={()=>setPage("districts")} style={{padding:"2px 7px",borderRadius:5,fontSize:10.5,fontWeight:600,background:OR_PALE,color:OR_D,cursor:"pointer"}}>{d}</span>)}
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, fontWeight: 700, marginBottom: 5 }}>
+                <span>{g.r}</span><span style={{ color: OR }}>{g.active}</span>
+              </div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                {g.ds.map(d => (
+                  <span key={d} onClick={() => setPage("districts")} style={{ padding: "2px 7px", borderRadius: 5, fontSize: 10.5, fontWeight: 600, background: OR_PALE, color: OR_D, cursor: "pointer" }}>{d}</span>
+                ))}
               </div>
             </div>
           ))}
         </div>
       </Card>
+
+      {/* ══════════════════════════════════════════════════════════════
+          NEW: Ujamaa Pamodzi Numbers Tracking Tool
+      ══════════════════════════════════════════════════════════════ */}
+      <div style={{ marginTop: 28 }}>
+
+        {/* Section header */}
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 10, marginBottom: 16 }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.4, color: "#9ca3af", marginBottom: 4 }}>Ujamaa Pamodzi · Numbers Tracking Tool</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "#111827" }}>Transition to Scale-Up</div>
+          </div>
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            {SUMMARY_BADGES.map(b => (
+              <span key={b.label} style={{ background: b.pale, color: b.color, padding: "4px 12px", borderRadius: 999, fontSize: 11, fontWeight: 700 }}>
+                {b.value} {b.label}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Yearly milestone cards */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(5, minmax(0,1fr))", gap: 10, marginBottom: 16 }}>
+          {YEARLY_DATA.map(d => (
+            <div
+              key={d.year}
+              style={{
+                ...S.trackingCard,
+                border: d.current ? "1.5px solid #378ADD" : "1px solid #f0f0f0",
+                background: d.planned ? "#fafafa" : "#fff",
+              }}
+            >
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: d.planned ? "#c4c4c4" : "#185fa5" }}>{d.year}</span>
+                {d.current && <span style={{ fontSize: 9, fontWeight: 700, background: "#e6f1fb", color: "#185fa5", padding: "2px 7px", borderRadius: 999 }}>Current</span>}
+                {d.planned && <span style={{ fontSize: 9, fontWeight: 700, background: "#f3f4f6", color: "#9ca3af", padding: "2px 7px", borderRadius: 999 }}>Planned</span>}
+              </div>
+
+              <div style={S.metricLabel}>Schools reached</div>
+              <div style={{ ...S.metricValue, fontSize: 18, color: d.planned ? "#c4c4c4" : "#111827" }}>
+                {d.schools.toLocaleString()}
+              </div>
+              <hr style={S.divider} />
+
+              <div style={S.metricLabel}>Teachers trained</div>
+              <div style={{ ...S.metricValue, fontSize: 18, color: d.planned ? "#c4c4c4" : "#111827" }}>
+                {d.teachers.toLocaleString()}
+              </div>
+              <hr style={S.divider} />
+
+              <div style={S.metricLabel}>Learners trained</div>
+              <div style={{ ...S.metricValue, fontSize: 18, color: d.planned ? "#c4c4c4" : "#111827" }}>
+                {d.learners.toLocaleString()}
+              </div>
+              <div style={S.metricSub}>
+                target {d.targetSchools.toLocaleString()} schools · {d.targetLearners.toLocaleString()} learners
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Scale-up trend chart */}
+        <div style={{ ...S.trackingCard, marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, flexWrap: "wrap", gap: 8 }}>
+            <div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>Scale-Up Trend — Schools & Learners</div>
+              <div style={{ fontSize: 11, color: "#9ca3af" }}>Annual actuals across transition period</div>
+            </div>
+            <div style={{ display: "flex", gap: 14, fontSize: 11, color: "#6b7280" }}>
+              <span><span style={S.legendDot("#378ADD")} />Schools reached</span>
+              <span><span style={S.legendDot("#1D9E75")} />Learners (÷ 1,000)</span>
+            </div>
+          </div>
+          <div style={{ position: "relative", width: "100%", height: 200 }}>
+            <canvas id="up-scale-chart" />
+          </div>
+        </div>
+
+        {/* Int1: Direct Training summary */}
+        <div style={{ background: "#f9fafb", border: "1px solid #f0f0f0", borderRadius: 16, padding: "14px 20px", marginBottom: 14, display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
+          <div>
+            <div style={{ fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: 1.2, color: "#9ca3af", marginBottom: 4 }}>Int1 · Direct Training · UNICEF Projects</div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 2 }}>Total students trained (all projects)</div>
+            <div style={{ fontSize: 34, fontWeight: 800, color: "#111827", lineHeight: 1 }}>63,128</div>
+          </div>
+          <div style={{ display: "flex", gap: 7, flexWrap: "wrap" }}>
+            {PROJECTS.map(p => (
+              <span key={p.tag} style={{ background: p.pale, color: p.color, padding: "4px 12px", borderRadius: 999, fontSize: 11, fontWeight: 700 }}>
+                {p.tag} · {p.period}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Project cards + charts */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14 }}>
+          {PROJECTS.map((p, i) => (
+            <div key={p.tag} style={S.trackingCard}>
+              {/* Project header */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 6 }}>
+                <span style={{ background: p.pale, color: p.color, padding: "3px 10px", borderRadius: 999, fontSize: 10, fontWeight: 700 }}>{p.tag}</span>
+              </div>
+              <div style={S.projHeader}>{p.label}</div>
+              <div style={S.projSub}>{p.period}</div>
+              <div style={S.projTotal}>{p.total.toLocaleString()}</div>
+              <div style={{ ...S.metricLabel, marginBottom: 10 }}>students trained</div>
+
+              {/* District list */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginBottom: 12 }}>
+                {p.districts.map(d => (
+                  <span key={d} style={{ fontSize: 9, fontWeight: 600, background: "#f3f4f6", color: "#6b7280", padding: "2px 6px", borderRadius: 4 }}>{d}</span>
+                ))}
+              </div>
+
+              {/* Boys vs Girls chart */}
+              <div style={{ display: "flex", gap: 12, fontSize: 10, color: "#6b7280", marginBottom: 8 }}>
+                <span><span style={S.legendDot("#378ADD")} />Boys</span>
+                <span><span style={S.legendDot("#D85A30")} />Girls</span>
+              </div>
+              <div style={{ position: "relative", width: "100%", height: 150 }}>
+                <canvas id={`up-proj-chart-${i}`} />
+              </div>
+            </div>
+          ))}
+        </div>
+
+      </div>
+      {/* ── END: Ujamaa Pamodzi Tracking ── */}
+
     </div>
   );
 }
